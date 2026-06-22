@@ -2224,6 +2224,20 @@ img.reward-admin-img{
 }
 </style>
 
+
+<style id="admin-select-choice-points-fix-v1">
+.admin-choice-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:6px}
+.admin-choice-btn{border:1px solid rgba(139,148,158,.26);background:rgba(13,17,23,.68);color:var(--text2);border-radius:10px;padding:10px 12px;text-align:left;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:800;cursor:pointer;transition:.15s ease}
+.admin-choice-btn:hover{border-color:rgba(56,139,253,.65);color:var(--text);background:rgba(56,139,253,.08)}
+.admin-choice-btn.active{border-color:rgba(227,179,65,.78);background:rgba(227,179,65,.13);color:var(--gold);box-shadow:0 0 0 1px rgba(227,179,65,.16) inset}
+.admin-choice-btn small{display:block;margin-top:3px;color:var(--text3);font-size:10.5px;font-weight:600;line-height:1.25}
+.choice-options-box textarea{min-height:94px;resize:vertical}
+.choice-tip-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:7px;margin-bottom:.75rem}
+.choice-tip-btn{min-height:48px;padding:10px}
+.choice-tip-btn .on{font-size:12px;color:var(--text);line-height:1.25}
+.choice-points-pill{display:inline-flex;align-items:center;gap:5px;border:1px solid rgba(227,179,65,.36);background:rgba(227,179,65,.10);color:var(--gold);border-radius:999px;padding:3px 9px;font-size:11px;font-weight:900;margin-left:6px}
+</style>
+
 </head>
 <body>
 
@@ -2445,6 +2459,54 @@ img.reward-admin-img{
       }catch(e){localStorage.removeItem(k);}
     });
   }catch(e){}
+})();
+</script>
+
+
+<script id="admin-select-choice-points-fix-v1">
+(function(){
+  if(window.__adminSelectChoicePointsFixV1)return;
+  window.__adminSelectChoicePointsFixV1=true;
+
+  window.chooseAdminNewCompValue=function(field,value,btn){
+    const input=document.getElementById(field);
+    if(input)input.value=value;
+    const box=btn?.closest('.admin-choice-grid');
+    if(box){
+      box.querySelectorAll('.admin-choice-btn').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+    }
+    if(field==='compLeague' && typeof setCompetitionPreset==='function')setCompetitionPreset();
+  };
+
+  window.getChoiceOptionsFromMatch=function(match){
+    const ro=typeof parseJsonMaybe==='function' ? parseJsonMaybe(match?.regulation_odds,{}) : (match?.regulation_odds||{});
+    const opts=Array.isArray(ro.options)?ro.options:[];
+    return opts.map(x=>String(x||'').trim()).filter(Boolean);
+  };
+
+  window.isChoicePointsEvent=function(match){
+    return String(match?.event_type||'').toLowerCase()==='choice_points';
+  };
+
+  window.choiceOptionLabel=function(match,index){
+    const opts=window.getChoiceOptionsFromMatch(match);
+    const i=Number(index);
+    if(Number.isInteger(i)&&opts[i])return opts[i];
+    return '–';
+  };
+
+  window.addChoiceOptionInput=function(){
+    const wrap=document.getElementById('choiceOptionsWrap');
+    if(!wrap)return;
+    const count=wrap.querySelectorAll('.choice-option-row').length+1;
+    const row=document.createElement('div');
+    row.className='choice-option-row';
+    row.style.cssText='display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:7px';
+    row.innerHTML=`<input type="text" class="choice-option-input" placeholder="Možnost ${count}">
+      <button type="button" class="btn-a" style="background:#5c1f1f" onclick="this.closest('.choice-option-row').remove()">×</button>`;
+    wrap.appendChild(row);
+  };
 })();
 </script>
 
@@ -3048,6 +3110,7 @@ function isBinaryEvent(match){
   return String(match?.event_type||'').toLowerCase()==='binary';
 }
 function eventTitle(match){
+  if(typeof isChoicePointsEvent==='function' && isChoicePointsEvent(match))return match.event_question || match.home || 'Výběrová otázka';
   return isBinaryEvent(match) ? (match.event_question || `${match.home} / ${match.away}`) : `${match.home} – ${match.away}`;
 }
 
@@ -4018,6 +4081,14 @@ function renderRules(){
 function pointsLabel(){return 'Bodová soutěž bez kurzů';}
 
 function evaluatePointsTip(match,tip){
+  if(typeof isChoicePointsEvent==='function' && isChoicePointsEvent(match)){
+    if(match.result_home===null||match.result_home===undefined)return null;
+    const correct=String(Number(match.result_home));
+    const picked=String(tip.outcome??'');
+    if(!picked)return null;
+    return picked===correct ? 2 : 0;
+  }
+
   if(match.result_home===null||match.result_home===undefined)return null;
   if(match.result_away===null||match.result_away===undefined)return null;
   const rh=Number(match.result_home),ra=Number(match.result_away);
@@ -4858,10 +4929,14 @@ async function renderMatches(){
     const sCls=m.status==='live'?'s-live':isDone?'s-done':locked?'s-live':'s-soon lock-countdown';
     const sTxt=m.status==='live'?'● Hraje se':isDone?'✓ Hotovo':locked?'● Hraje se':formatLockCountdown(m);
     const binaryEvent=isBinaryEvent(m);
+    const choicePointsEvent=typeof isChoicePointsEvent==='function'&&isChoicePointsEvent(m);
     const titleText=eventTitle(m);
-    html+=`<div class="match-card ${binaryEvent?'event-card':''}" data-match-id="${m.id}" data-match-date="${escapeHTML(m.match_date)}" data-done="${isDone?'1':'0'}"><div class="match-head"><div><div class="match-teams">${escapeHTML(titleText)}</div><div class="match-date">${m.match_date}${binaryEvent?' · Všehochuť událost':''}</div></div><span class="${sCls}"${statusAttr}>${sTxt}</span></div>`;
+    html+=`<div class="match-card ${(binaryEvent||choicePointsEvent)?'event-card':''}" data-match-id="${m.id}" data-match-date="${escapeHTML(m.match_date)}" data-done="${isDone?'1':'0'}"><div class="match-head"><div><div class="match-teams">${escapeHTML(titleText)}</div><div class="match-date">${m.match_date}${binaryEvent?' · Všehochuť událost':choicePointsEvent?' · Výběrová otázka za 2 body':''}</div></div><span class="${sCls}"${statusAttr}>${sTxt}</span></div>`;
     if(isDone&&m.result_home!==null){
-      if(binaryEvent){
+      if(choicePointsEvent){
+        const eventWinner=choiceOptionLabel(m,m.result_home);
+        html+=`<div class="result-big event-result-big">${escapeHTML(eventWinner)}</div><div class="result-dec">Správná odpověď · +2 body</div>`;
+      }else if(binaryEvent){
         const eventWinner=Number(m.result_home)>Number(m.result_away)?m.home:m.away;
         html+=`<div class="result-big event-result-big">${escapeHTML(eventWinner)}</div><div class="result-dec">Vyhodnocená událost</div>`;
       }else{
@@ -4873,20 +4948,33 @@ async function renderMatches(){
     const pointsMode=isPointsCompetition();
     if(!isDone&&!matchStarted){
       if(pointsMode){
-        const sh=myTip?.score_home??'';
-        const sa=myTip?.score_away??'';
-        html+=`<div class="tip-form" id="tipForm_${m.id}">
-          <div class="tip-label">Tip přesného výsledku včetně prodloužení / nájezdů</div>
-          <div class="stake-row" style="justify-content:flex-start;gap:8px">
-            <label>${m.home}</label>
-            <input type="number" class="stake-inp" id="sh_${m.id}" min="0" step="1" value="${sh}" placeholder="0" style="width:70px;text-align:center">
-            <span class="stake-unit">:</span>
-            <input type="number" class="stake-inp" id="sa_${m.id}" min="0" step="1" value="${sa}" placeholder="0" style="width:70px;text-align:center">
-            <label>${m.away}</label>
-          </div>
-          <div style="font-size:12px;color:var(--text3);padding:0 1rem 10px">Bodování: přesný výsledek = 5 bodů max. Když trefíš přesně, další body se nepřičítají.</div>
-          <button type="button" class="btn-tip" onclick="placeTip('${m.id}')" id="tipBtn_${m.id}">${myTip?'✓ Aktualizovat tip':'Potvrdit tip →'}</button>
-        </div>`;
+        if(choicePointsEvent){
+          const opts=getChoiceOptionsFromMatch(m);
+          const sel=String(myTip?.outcome??pending[m.id]?.outcome??'');
+          const buttons=opts.map((opt,i)=>`<button type="button" class="odd-btn choice-tip-btn ${sel===String(i)?'sel':''}" data-tip-key="outcome" data-tip-val="${i}" onclick="selOpt('${m.id}','outcome','${i}',this)"><div class="on">${escapeHTML(opt)}</div></button>`).join('');
+          html+=`<div class="tip-form" id="tipForm_${m.id}" data-match-id="${m.id}">
+            <input type="hidden" id="tipkey_${m.id}" value="${sel!==''?'outcome':''}">
+            <input type="hidden" id="tipval_${m.id}" value="${escapeHTML(sel)}">
+            <div class="tip-label">Vyber jednu odpověď <span class="choice-points-pill">+2 body za správnou</span></div>
+            <div class="choice-tip-grid">${buttons}</div>
+            <button type="button" class="btn-tip" onclick="placeTip('${m.id}')" id="tipBtn_${m.id}" data-tip-key="${sel!==''?'outcome':''}" data-tip-val="${escapeHTML(sel)}">${myTip?'✓ Aktualizovat tip':'Potvrdit tip →'}</button>
+          </div>`;
+        }else{
+          const sh=myTip?.score_home??'';
+          const sa=myTip?.score_away??'';
+          html+=`<div class="tip-form" id="tipForm_${m.id}">
+            <div class="tip-label">Tip přesného výsledku včetně prodloužení / nájezdů</div>
+            <div class="stake-row" style="justify-content:flex-start;gap:8px">
+              <label>${m.home}</label>
+              <input type="number" class="stake-inp" id="sh_${m.id}" min="0" step="1" value="${sh}" placeholder="0" style="width:70px;text-align:center">
+              <span class="stake-unit">:</span>
+              <input type="number" class="stake-inp" id="sa_${m.id}" min="0" step="1" value="${sa}" placeholder="0" style="width:70px;text-align:center">
+              <label>${m.away}</label>
+            </div>
+            <div style="font-size:12px;color:var(--text3);padding:0 1rem 10px">Bodování: přesný výsledek = 5 bodů max. Když trefíš přesně, další body se nepřičítají.</div>
+            <button type="button" class="btn-tip" onclick="placeTip('${m.id}')" id="tipBtn_${m.id}">${myTip?'✓ Aktualizovat tip':'Potvrdit tip →'}</button>
+          </div>`;
+        }
       }else if(binaryEvent&&m.odds_home){
         const sel=pending[m.id]?.outcome||myTip?.outcome||'';
         const stakeVal=myTip?.stake||500;
@@ -5043,6 +5131,31 @@ async function placeTip(mid){
   }
 
   if(pointsMode){
+    if(typeof isChoicePointsEvent==='function' && isChoicePointsEvent(currentMatch)){
+      const hiddenVal=document.getElementById('tipval_'+mid)?.value ?? '';
+      const submitVal=btn?.dataset?.tipVal ?? '';
+      const p=pending[mid]||{};
+      let chosen=submitVal!==''?submitVal:(hiddenVal!==''?hiddenVal:(p.outcome??''));
+      if(chosen===''||chosen===undefined||chosen===null){
+        const form=document.getElementById('tipForm_'+mid)||btn.closest('.tip-form')||document;
+        const selectedBtn=form?.querySelector('.odd-btn.sel, .odd-btn[aria-pressed="true"]');
+        chosen=selectedBtn?.getAttribute('data-tip-val')??'';
+      }
+      const opts=getChoiceOptionsFromMatch(currentMatch);
+      const idx=Number(chosen);
+      if(!Number.isInteger(idx)||idx<0||idx>=opts.length){
+        alert('Vyber jednu odpověď.');
+        btn.disabled=false;btn.textContent=existing?'✓ Aktualizovat tip':'Potvrdit tip →';
+        return;
+      }
+      const tipData={user_id:currentUser.id,match_id:mid,outcome:String(idx),decision:null,goals:null,score_home:null,score_away:null,stake:0,settled:false,winnings:0};
+      if(existing){await sb.from('tips').update(tipData).eq('id',existing.id);const tipIdx=allTips.findIndex(t=>t.match_id===mid);allTips[tipIdx]={...existing,...tipData};}
+      else{const{data}=await sb.from('tips').insert(tipData).select().single();if(data)allTips.push(data);}
+      btn.disabled=false;btn.textContent='✓ Uloženo!';
+      setTimeout(()=>{btn.textContent='✓ Aktualizovat tip';btn.disabled=false;},2000);
+      return;
+    }
+
     const scoreHome=parseInt(document.getElementById('sh_'+mid)?.value,10);
     const scoreAway=parseInt(document.getElementById('sa_'+mid)?.value,10);
     if(isNaN(scoreHome)||isNaN(scoreAway)||scoreHome<0||scoreAway<0){alert('Zadej platný přesný výsledek.');btn.disabled=false;btn.textContent=existing?'✓ Aktualizovat tip':'Potvrdit tip →';return;}
@@ -5134,9 +5247,16 @@ async function renderMyTips(){
     let tipLine='';
     let resultBadge='';
     if(pointsMode){
-      tipLine=`<span style="font-size:12px;color:var(--text2)">Tip: <strong style="color:var(--text)">${t.score_home}:${t.score_away}</strong></span><span style="font-size:11px;color:var(--text3)">přesný výsledek</span>`;
-      const exactHit=isExactScoreTip(t,m);
-      resultBadge=res===null?'<span class="b-wait">⏳ Čeká</span>':exactHit?'<span class="exact-celebration">🎉 Přesný výsledek! +5 bodů</span>':res>0?`<span class="b-won">+${Math.round(res)} bodů</span>`:'<span class="b-lost">0 bodů</span>';
+      if(typeof isChoicePointsEvent==='function'&&isChoicePointsEvent(m)){
+        const picked=choiceOptionLabel(m,t.outcome);
+        const correct=isDone&&m.result_home!==null?choiceOptionLabel(m,m.result_home):null;
+        tipLine=`<span style="font-size:12px;color:var(--text2)">Tip: <strong style="color:var(--text)">${escapeHTML(picked)}</strong></span><span style="font-size:11px;color:var(--text3)">výběrová otázka · +2 body</span>${correct?`<span style="font-size:12px;color:var(--text3)">Správně: <strong style="color:var(--text)">${escapeHTML(correct)}</strong></span>`:''}`;
+        resultBadge=res===null?'<span class="b-wait">⏳ Čeká</span>':res>0?`<span class="b-won">+2 body</span>`:'<span class="b-lost">0 bodů</span>';
+      }else{
+        tipLine=`<span style="font-size:12px;color:var(--text2)">Tip: <strong style="color:var(--text)">${t.score_home}:${t.score_away}</strong></span><span style="font-size:11px;color:var(--text3)">přesný výsledek</span>`;
+        const exactHit=isExactScoreTip(t,m);
+        resultBadge=res===null?'<span class="b-wait">⏳ Čeká</span>':exactHit?'<span class="exact-celebration">🎉 Přesný výsledek! +5 bodů</span>':res>0?`<span class="b-won">+${Math.round(res)} bodů</span>`:'<span class="b-lost">0 bodů</span>';
+      }
     }else{
       const inf=t.outcome||t.decision;
       const outLbl=inf==='home'?m.home:inf==='away'?m.away:inf==='draw'?'Remíza':'–';
@@ -5758,9 +5878,29 @@ async function renderAdmin(){
   const visibleAdminMatches=matches.filter(isMatchTodayOrFuture);
   let html=renderCompetitionPeriodsAdminBox()+`<div class="admin-box"><h3>Nová soutěž</h3>
     <div class="field"><label>Název</label><input type="text" id="compName" placeholder="NHL Playoff 2026"></div>
-    <div class="field"><label>Liga</label><select id="compLeague" onchange="setCompetitionPreset()"><option value="nhl">NHL</option><option value="extraliga">Česká extraliga</option><option value="Mistrovství světa">Mistrovství světa</option><option value="Všehochuť">Všehochuť</option></select></div>
-    <div class="field"><label>Typ soutěže</label><select id="compScoringMode"><option value="credits">Kurzová soutěž za kredity</option><option value="points">Bodová soutěž bez kurzů</option></select></div>
-    <div class="field"><label>Přístup</label><select id="compAccessType"><option value="public">Veřejná — hráč se připojí sám</option><option value="private">Soukromá — schvaluje admin</option></select></div>
+    <div class="field"><label>Liga</label>
+      <input type="hidden" id="compLeague" value="nhl">
+      <div class="admin-choice-grid">
+        <button type="button" class="admin-choice-btn active" onclick="chooseAdminNewCompValue('compLeague','nhl',this)">NHL<small>klasická liga</small></button>
+        <button type="button" class="admin-choice-btn" onclick="chooseAdminNewCompValue('compLeague','extraliga',this)">Česká extraliga<small>klasická liga</small></button>
+        <button type="button" class="admin-choice-btn" onclick="chooseAdminNewCompValue('compLeague','Mistrovství světa',this)">Mistrovství světa<small>automaticky bodová</small></button>
+        <button type="button" class="admin-choice-btn" onclick="chooseAdminNewCompValue('compLeague','Všehochuť',this)">Všehochuť<small>zápasy i otázky</small></button>
+      </div>
+    </div>
+    <div class="field"><label>Typ soutěže</label>
+      <input type="hidden" id="compScoringMode" value="credits">
+      <div class="admin-choice-grid">
+        <button type="button" class="admin-choice-btn active" onclick="chooseAdminNewCompValue('compScoringMode','credits',this)">Kurzová<small>soutěž za kredity</small></button>
+        <button type="button" class="admin-choice-btn" onclick="chooseAdminNewCompValue('compScoringMode','points',this)">Bodová<small>body bez kreditů</small></button>
+      </div>
+    </div>
+    <div class="field"><label>Přístup</label>
+      <input type="hidden" id="compAccessType" value="public">
+      <div class="admin-choice-grid">
+        <button type="button" class="admin-choice-btn active" onclick="chooseAdminNewCompValue('compAccessType','public',this)">Veřejná<small>hráč se připojí sám</small></button>
+        <button type="button" class="admin-choice-btn" onclick="chooseAdminNewCompValue('compAccessType','private',this)">Soukromá<small>schvaluje admin</small></button>
+      </div>
+    </div>
     <div class="field"><label>Sezóna</label><input type="text" id="compSeason" placeholder="2025/26"></div>
     <button class="btn-a btn-g" onclick="createComp()" style="width:100%">Vytvořit soutěž</button>
   </div><div class="admin-box"><h3>Soutěže</h3>`;
@@ -5826,21 +5966,37 @@ async function renderAdmin(){
       <button class="btn-a btn-g" onclick="addMatch()" style="width:100%">Přidat zápas</button>
     </div>`;
 
-    if(isVsehochutCompetition(currentComp)&&!pointsMode){
-      html+=`<div class="admin-box"><h3>Přidat událost → Všehochuť</h3>
-        <div style="color:var(--text3);font-size:12px;margin-bottom:10px;line-height:1.4">Speciální událost se dvěma možnostmi. Např. „Bude zítra 25 stupňů?“ — Ano / Ne.</div>
-        <div class="field"><label>Otázka / událost</label><input type="text" id="evQuestion" placeholder="Bude zítra 25 stupňů?"></div>
-        <div class="field"><label>Datum uzamčení</label><input type="text" id="evDate" placeholder="25.5.2026 20:20"></div>
-        <div style="display:grid;grid-template-columns:1fr 110px;gap:8px">
-          <div class="field"><label>Možnost 1</label><input type="text" id="evOpt1" placeholder="Ano"></div>
-          <div class="field"><label>Kurz 1</label><input type="number" id="evOdd1" step="0.01" min="1.01" placeholder="1.94"></div>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 110px;gap:8px">
-          <div class="field"><label>Možnost 2</label><input type="text" id="evOpt2" placeholder="Ne"></div>
-          <div class="field"><label>Kurz 2</label><input type="number" id="evOdd2" step="0.01" min="1.01" placeholder="1.69"></div>
-        </div>
-        <button class="btn-a btn-g" onclick="addBinaryEvent()" style="width:100%">Přidat událost</button>
-      </div>`;
+    if(isVsehochutCompetition(currentComp)){
+      if(pointsMode){
+        html+=`<div class="admin-box choice-options-box"><h3>Přidat výběrovou otázku → Všehochuť</h3>
+          <div style="color:var(--text3);font-size:12px;margin-bottom:10px;line-height:1.4">Bodová otázka s 2 až více možnostmi. Hráč vybere jednu odpověď. Správný tip = <strong style="color:var(--gold)">+2 body</strong>.</div>
+          <div class="field"><label>Otázka / událost</label><input type="text" id="evQuestion" placeholder="Jaké bude zítra počasí?"></div>
+          <div class="field"><label>Datum uzamčení</label><input type="text" id="evDate" placeholder="25.5.2026 20:20"></div>
+          <div class="field"><label>Možnosti odpovědí</label>
+            <div id="choiceOptionsWrap">
+              <div class="choice-option-row" style="display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:7px"><input type="text" class="choice-option-input" placeholder="Možnost 1"><button type="button" class="btn-a" style="background:#5c1f1f" onclick="this.closest('.choice-option-row').remove()">×</button></div>
+              <div class="choice-option-row" style="display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:7px"><input type="text" class="choice-option-input" placeholder="Možnost 2"><button type="button" class="btn-a" style="background:#5c1f1f" onclick="this.closest('.choice-option-row').remove()">×</button></div>
+            </div>
+            <button type="button" class="btn-a" onclick="addChoiceOptionInput()" style="margin-top:8px">+ Přidat možnost</button>
+          </div>
+          <button class="btn-a btn-g" onclick="addChoicePointsEvent()" style="width:100%">Přidat otázku za 2 body</button>
+        </div>`;
+      }else{
+        html+=`<div class="admin-box"><h3>Přidat událost → Všehochuť</h3>
+          <div style="color:var(--text3);font-size:12px;margin-bottom:10px;line-height:1.4">Speciální událost se dvěma možnostmi. Např. „Bude zítra 25 stupňů?“ — Ano / Ne.</div>
+          <div class="field"><label>Otázka / událost</label><input type="text" id="evQuestion" placeholder="Bude zítra 25 stupňů?"></div>
+          <div class="field"><label>Datum uzamčení</label><input type="text" id="evDate" placeholder="25.5.2026 20:20"></div>
+          <div style="display:grid;grid-template-columns:1fr 110px;gap:8px">
+            <div class="field"><label>Možnost 1</label><input type="text" id="evOpt1" placeholder="Ano"></div>
+            <div class="field"><label>Kurz 1</label><input type="number" id="evOdd1" step="0.01" min="1.01" placeholder="1.94"></div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 110px;gap:8px">
+            <div class="field"><label>Možnost 2</label><input type="text" id="evOpt2" placeholder="Ne"></div>
+            <div class="field"><label>Kurz 2</label><input type="number" id="evOdd2" step="0.01" min="1.01" placeholder="1.69"></div>
+          </div>
+          <button class="btn-a btn-g" onclick="addBinaryEvent()" style="width:100%">Přidat událost</button>
+        </div>`;
+      }
     }
 
     if((visibleAdminMatches||[]).length){
@@ -5908,7 +6064,23 @@ async function renderAdmin(){
     if(pend.length){
       html+='<div class="admin-box"><h3>Zadat výsledky</h3>';
       pend.forEach(m=>{
-        if(isBinaryEvent(m)){
+        if(typeof isChoicePointsEvent==='function'&&isChoicePointsEvent(m)){
+          const opts=getChoiceOptionsFromMatch(m);
+          const optHtml=opts.map((o,i)=>`<option value="${i}">${escapeHTML(o)}</option>`).join('');
+          html+=`<div style="border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px">
+            <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px">
+              <div style="font-weight:500;color:var(--text);flex:1;min-width:0">${escapeHTML(eventTitle(m))} <span style="color:var(--gold);font-size:12px">+2 body</span> <span style="color:var(--text3);font-size:12px">${escapeHTML(m.match_date)}</span></div>
+              <button type="button" title="Smazat otázku" onclick="deleteMatch('${m.id}')" style="width:32px;height:32px;border-radius:50%;border:1px solid rgba(248,81,73,.45);background:rgba(248,81,73,.12);color:var(--red);font-size:18px;font-weight:800;line-height:1;cursor:pointer;flex:0 0 auto">×</button>
+            </div>
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+              <select id="cr_${m.id}" style="width:auto;margin:0;padding:6px">
+                <option value="">Vyber správnou odpověď</option>
+                ${optHtml}
+              </select>
+              <button class="btn-a btn-g" onclick="saveChoicePointsEventResult('${m.id}')">Uložit správnou odpověď</button>
+            </div>
+          </div>`;
+        }else if(isBinaryEvent(m)){
           html+=`<div style="border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:8px">
             <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px">
               <div style="font-weight:500;color:var(--text);flex:1;min-width:0">${escapeHTML(eventTitle(m))} <span style="color:var(--text3);font-size:12px">${escapeHTML(m.match_date)}</span></div>
@@ -6012,7 +6184,14 @@ function setCompetitionPreset(){
   const league=document.getElementById('compLeague')?.value||'';
   const mode=document.getElementById('compScoringMode');
   if(!mode)return;
-  mode.value=String(league).toLowerCase().includes('mistrov')?'points':'credits';
+  if(String(league).toLowerCase().includes('mistrov'))mode.value='points';
+
+  const box=mode.closest('.field')?.querySelector('.admin-choice-grid');
+  if(box){
+    box.querySelectorAll('.admin-choice-btn').forEach(b=>b.classList.remove('active'));
+    const btn=Array.from(box.querySelectorAll('.admin-choice-btn')).find(b=>String(b.getAttribute('onclick')||'').includes(`'${mode.value}'`));
+    if(btn)btn.classList.add('active');
+  }
 }
 
 
@@ -6220,6 +6399,57 @@ async function addBinaryEvent(){
   alert('Událost přidána.');
   renderAdmin();
   renderMatches();
+  loadTicker();
+}
+
+
+async function addChoicePointsEvent(){
+  if(isArchivedPeriod()){alert('Tohle období je archivované. Vytvoř nebo vyber aktuální období.');return;}
+  if(!currentComp){alert('Nejdřív vytvoř soutěž.');return;}
+  if(!isVsehochutCompetition(currentComp)){alert('Výběrové otázky jsou dostupné jen pro ligu Všehochuť.');return;}
+  if(!isPointsCompetition()){alert('Tahle otázka za body je jen pro bodovou soutěž.');return;}
+
+  const q=document.getElementById('evQuestion')?.value.trim();
+  const date=document.getElementById('evDate')?.value.trim();
+  const options=Array.from(document.querySelectorAll('.choice-option-input')).map(i=>i.value.trim()).filter(Boolean);
+
+  if(!q||!date||options.length<2){alert('Vyplň otázku, datum a alespoň dvě možnosti.');return;}
+
+  const payload={
+    competition_id:currentComp.id,
+    period_id:currentPeriod?.id||null,
+    event_type:'choice_points',
+    event_question:q,
+    home:q,
+    away:'Výběrová otázka',
+    match_date:date,
+    odds_home:1,
+    odds_draw:null,
+    odds_away:1,
+    regulation_odds:{options},
+    status:'scheduled'
+  };
+
+  const{error}=await sb.from('matches').insert(payload);
+  if(error){alert('Otázku se nepodařilo uložit: '+error.message);return;}
+  alert('Výběrová otázka přidána.');
+  renderAdmin();
+  renderMatches();
+  loadTicker();
+}
+
+async function saveChoicePointsEventResult(mid){
+  const val=document.getElementById('cr_'+mid)?.value;
+  if(val===''||val===undefined||val===null){alert('Vyber správnou odpověď.');return;}
+  const payload={result_home:Number(val),result_away:-1,decision:'reg',status:'done'};
+  const{error}=await sb.from('matches').update(payload).eq('id',mid);
+  if(error){alert('Výsledek otázky se nepodařilo uložit: '+error.message);return;}
+  await settleWinnings();
+  await updateCreditsDisplay();
+  alert('Otázka vyhodnocena a body přepočítány.');
+  renderAdmin();
+  renderMatches();
+  renderLeaderboard();
   loadTicker();
 }
 
