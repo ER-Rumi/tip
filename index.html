@@ -5,6 +5,52 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Tipovačka 🏒</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+<script id="admin-controls-responsive-fix-v1">
+(function(){
+  if(window.__adminControlsResponsiveFixV1)return;
+  window.__adminControlsResponsiveFixV1=true;
+
+  // Cache je v nové verzi vypnutá. Tahle funkce zůstává jen kvůli kompatibilitě se staršími voláními.
+  window.clearSupabaseGetCache=function(){};
+
+  function syncChoiceButton(btn){
+    const onclick=String(btn.getAttribute('onclick')||'');
+    const m=onclick.match(/chooseAdminNewCompValue\('([^']+)','([^']+)'/);
+    if(!m)return false;
+    const field=m[1], value=m[2];
+    const input=document.getElementById(field);
+    if(input)input.value=value;
+    const box=btn.closest('.admin-choice-grid');
+    if(box){
+      box.querySelectorAll('.admin-choice-btn').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+    }
+    if(field==='compLeague' && typeof window.setCompetitionPreset==='function'){
+      window.setCompetitionPreset();
+    }
+    return true;
+  }
+
+  // Pointerdown působí okamžitěji než click a pomáhá i na mobilech/tabletech.
+  document.addEventListener('pointerdown',function(e){
+    const btn=e.target.closest && e.target.closest('.admin-choice-btn');
+    if(!btn)return;
+    if(syncChoiceButton(btn)){
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  },true);
+
+  // Záloha pro prohlížeče, kde pointerdown nezafunguje.
+  document.addEventListener('click',function(e){
+    const btn=e.target.closest && e.target.closest('.admin-choice-btn');
+    if(!btn)return;
+    syncChoiceButton(btn);
+  },true);
+})();
+</script>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root{
@@ -2350,119 +2396,6 @@ img.reward-admin-img{
 </div>
 
 
-<script id="supabase-egress-cache-v1">
-(function(){
-  if(window.__supabaseEgressCacheV1)return;
-  window.__supabaseEgressCacheV1=true;
-
-  const CACHE_PREFIX='sb_get_cache_v1_';
-  const DEFAULT_TTL=90*1000;       // běžné čtení 90 s
-  const FAST_TTL=25*1000;          // zápasy/tipy kratší cache
-  const SETTINGS_TTL=5*60*1000;    // nastavení, pravidla, odměny 5 min
-
-  function isSupabaseRestGet(input,init){
-    const method=String((init&&init.method)||'GET').toUpperCase();
-    if(method!=='GET')return false;
-    const url=typeof input==='string'?input:(input&&input.url)||'';
-    return url.includes('.supabase.co/rest/v1/');
-  }
-
-  function ttlFor(url){
-    if(url.includes('/site_settings') || url.includes('/competition_period_rewards') || url.includes('/competition_rewards'))return SETTINGS_TTL;
-    if(url.includes('/matches') || url.includes('/tips') || url.includes('/competition_players'))return FAST_TTL;
-    return DEFAULT_TTL;
-  }
-
-  function cacheKey(url){
-    // Cache je lokální v prohlížeči daného uživatele, takže nevadí Authorization hlavičky.
-    return CACHE_PREFIX+btoa(unescape(encodeURIComponent(url))).slice(0,180);
-  }
-
-  function clearSupabaseGetCache(){
-    try{
-      const keys=[];
-      for(let i=0;i<localStorage.length;i++){
-        const k=localStorage.key(i);
-        if(k&&k.startsWith(CACHE_PREFIX))keys.push(k);
-      }
-      keys.forEach(k=>localStorage.removeItem(k));
-    }catch(e){}
-  }
-
-  window.clearSupabaseGetCache=clearSupabaseGetCache;
-
-  const oldFetch=window.fetch.bind(window);
-  window.fetch=async function(input,init){
-    const url=typeof input==='string'?input:(input&&input.url)||'';
-    const method=String((init&&init.method)||'GET').toUpperCase();
-
-    // Jakýkoliv zápis smaže cache, aby admin po uložení viděl aktuální data.
-    if(url.includes('.supabase.co/rest/v1/') && method!=='GET'){
-      clearSupabaseGetCache();
-      return oldFetch(input,init);
-    }
-
-    if(!isSupabaseRestGet(input,init)){
-      return oldFetch(input,init);
-    }
-
-    // Necachovat auth ani storage; jen PostgREST čtení tabulek.
-    const key=cacheKey(url);
-    const ttl=ttlFor(url);
-    const now=Date.now();
-
-    try{
-      const cached=JSON.parse(localStorage.getItem(key)||'null');
-      if(cached && cached.expires>now && cached.status && cached.body!==undefined){
-        return new Response(cached.body,{
-          status:cached.status,
-          statusText:cached.statusText||'OK',
-          headers:cached.headers||{'content-type':'application/json'}
-        });
-      }
-    }catch(e){}
-
-    const res=await oldFetch(input,init);
-
-    // Ukládáme jen úspěšné GET odpovědi. Clone znamená, že původní response normálně pokračuje do Supabase klienta.
-    try{
-      if(res.ok){
-        const clone=res.clone();
-        const body=await clone.text();
-        const headers={};
-        clone.headers.forEach((v,k)=>{headers[k]=v;});
-        localStorage.setItem(key,JSON.stringify({
-          expires:now+ttl,
-          status:res.status,
-          statusText:res.statusText,
-          headers,
-          body
-        }));
-      }
-    }catch(e){}
-
-    return res;
-  };
-
-  // Po načtení stránky vyčistíme hodně staré cache záznamy.
-  try{
-    const now=Date.now();
-    const keys=[];
-    for(let i=0;i<localStorage.length;i++){
-      const k=localStorage.key(i);
-      if(k&&k.startsWith(CACHE_PREFIX))keys.push(k);
-    }
-    keys.forEach(k=>{
-      try{
-        const v=JSON.parse(localStorage.getItem(k)||'null');
-        if(!v||!v.expires||v.expires<now-10*60*1000)localStorage.removeItem(k);
-      }catch(e){localStorage.removeItem(k);}
-    });
-  }catch(e){}
-})();
-</script>
-
-
 <script id="admin-select-choice-points-fix-v1">
 (function(){
   if(window.__adminSelectChoicePointsFixV1)return;
@@ -2477,6 +2410,7 @@ img.reward-admin-img{
       btn.classList.add('active');
     }
     if(field==='compLeague' && typeof setCompetitionPreset==='function')setCompetitionPreset();
+    return false;
   };
 
   window.getChoiceOptionsFromMatch=function(match){
@@ -6236,6 +6170,8 @@ async function decideJoinRequest(requestId,approve){
 }
 
 async function createComp(){
+  if(window.__creatingCompetitionNow)return;
+  window.__creatingCompetitionNow=true;
   const name=document.getElementById('compName')?.value.trim();
   const league=document.getElementById('compLeague')?.value;
   const season=document.getElementById('compSeason')?.value.trim();
@@ -6243,7 +6179,7 @@ async function createComp(){
   const access_type=document.getElementById('compAccessType')?.value||'public';
   const btn=document.querySelector('button[onclick="createComp()"]');
 
-  if(!name||!season){alert('Vyplň název a sezónu.');return;}
+  if(!name||!season){window.__creatingCompetitionNow=false;alert('Vyplň název a sezónu.');return;}
 
   if(btn){
     btn.disabled=true;
