@@ -2284,6 +2284,99 @@ img.reward-admin-img{
 .choice-points-pill{display:inline-flex;align-items:center;gap:5px;border:1px solid rgba(227,179,65,.36);background:rgba(227,179,65,.10);color:var(--gold);border-radius:999px;padding:3px 9px;font-size:11px;font-weight:900;margin-left:6px}
 </style>
 
+
+<style id="public-pending-tips-v1">
+.public-tips-card{
+  margin-top:14px;
+  border:1px solid rgba(227,179,65,.28);
+  background:linear-gradient(135deg,rgba(13,17,23,.88),rgba(22,27,34,.78));
+  border-radius:12px;
+  overflow:hidden;
+  box-shadow:0 12px 32px rgba(0,0,0,.22);
+}
+.public-tips-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:13px 16px;
+  border-bottom:1px solid rgba(139,148,158,.16);
+}
+.public-tips-title{
+  color:var(--gold);
+  text-transform:uppercase;
+  letter-spacing:.14em;
+  font-size:12px;
+  font-weight:900;
+}
+.public-tips-sub{
+  color:var(--text3);
+  font-size:11px;
+  margin-top:3px;
+  text-transform:none;
+  letter-spacing:0;
+  font-weight:600;
+}
+.public-tips-match{
+  padding:12px 16px 6px;
+}
+.public-tips-match-title{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  color:var(--text);
+  font-size:13px;
+  font-weight:900;
+  margin-bottom:8px;
+}
+.public-tips-match-date{
+  color:var(--text3);
+  font-size:11px;
+  font-weight:700;
+  white-space:nowrap;
+}
+.public-tips-table{
+  width:100%;
+  border-collapse:separate;
+  border-spacing:0 6px;
+}
+.public-tips-table td{
+  background:rgba(33,38,45,.62);
+  border-top:1px solid rgba(139,148,158,.14);
+  border-bottom:1px solid rgba(139,148,158,.14);
+  padding:9px 11px;
+  font-size:13px;
+}
+.public-tips-table td:first-child{
+  border-left:1px solid rgba(139,148,158,.14);
+  border-radius:8px 0 0 8px;
+  color:var(--text);
+  font-weight:900;
+}
+.public-tips-table td:last-child{
+  border-right:1px solid rgba(139,148,158,.14);
+  border-radius:0 8px 8px 0;
+  color:var(--gold);
+  text-align:right;
+  font-size:16px;
+  font-weight:1000;
+  letter-spacing:.03em;
+}
+.public-tips-empty{
+  padding:14px 16px;
+  color:var(--text3);
+  font-size:13px;
+  text-align:center;
+}
+.public-tips-admin-state{
+  font-size:13px;
+  color:var(--text2);
+  margin-bottom:8px;
+  line-height:1.45;
+}
+</style>
+
 </head>
 <body>
 
@@ -5272,6 +5365,128 @@ async function toggleSupportBox(){
   if(typeof renderLeaderboard==='function')renderLeaderboard();
 }
 
+
+function publicTipsSettingKey(){
+  if(!currentComp?.id)return 'public_tips_disabled';
+  const pid=currentPeriod?.id||'current';
+  return `public_tips_${currentComp.id}_${pid}`;
+}
+
+async function loadPublicTipsSetting(){
+  if(!currentComp)return false;
+  try{
+    const{data,error}=await sb.from('site_settings').select('value').eq('key',publicTipsSettingKey()).maybeSingle();
+    if(error)return false;
+    const v=String(data?.value||'').toLowerCase();
+    return v==='true'||v==='1'||v==='yes'||v==='on';
+  }catch(e){
+    console.warn('public tips setting:',e);
+    return false;
+  }
+}
+
+async function togglePublicTipsSetting(){
+  if(!currentUser||currentUser.username!==ADMIN_USERNAME){alert('Jen admin.');return;}
+  if(!currentComp){alert('Nejdřív vyber soutěž.');return;}
+  if(!isPrivateCompetition(currentComp)){
+    alert('Veřejné tipy dávají smysl hlavně u soukromé soutěže. Nejdřív vytvoř nebo vyber soukromou soutěž.');
+    return;
+  }
+
+  const enabled=await loadPublicTipsSetting();
+  const next=!enabled;
+  const payload={key:publicTipsSettingKey(),value:String(next),updated_at:new Date().toISOString()};
+  let resp=await sb.from('site_settings').upsert(payload,{onConflict:'key'});
+  if(resp.error){
+    alert('Nastavení veřejných tipů se nepodařilo uložit: '+resp.error.message);
+    return;
+  }
+  alert(next?'Veřejné tipy zapnuté. Členové uvidí čekající přesné tipy v žebříčku.':'Veřejné tipy vypnuté.');
+  await renderAdmin();
+  await renderLeaderboard();
+}
+
+async function renderPublicTipsAdminBox(){
+  if(!currentComp||!isPrivateCompetition(currentComp))return '';
+  const enabled=await loadPublicTipsSetting();
+  return `<div class="admin-box"><h3>Veřejné tipy v žebříčku</h3>
+    <div class="public-tips-admin-state">
+      Aktuálně: ${enabled?'<strong style="color:var(--green)">zapnuto</strong>':'<strong style="color:var(--red)">vypnuto</strong>'}<br>
+      Když to zapneš, členové soukromé soutěže uvidí dole v žebříčku box <strong>Jak tipují ostatní?</strong>.
+      Zobrazí se jen čekající tipy na přesný výsledek, ne vyhodnocené tipy.
+    </div>
+    <button class="btn-a ${enabled?'support-off':'btn-g'}" onclick="togglePublicTipsSetting()" style="width:100%">
+      ${enabled?'Vypnout veřejné tipy':'Zapnout veřejné tipy'}
+    </button>
+  </div>`;
+}
+
+function renderPublicPendingTipsBox(allTipsForComp,leaderboardUsers,matchById){
+  const userById={};
+  (leaderboardUsers||[]).forEach(u=>{userById[String(u.id)]=u.username;});
+
+  const rows=(allTipsForComp||[])
+    .filter(t=>{
+      const m=matchById[String(t.match_id)];
+      if(!m)return false;
+      if(m.status==='done'||t.settled)return false;
+      if(t.score_home===null||t.score_home===undefined)return false;
+      if(t.score_away===null||t.score_away===undefined)return false;
+      return userById[String(t.user_id)];
+    })
+    .sort((a,b)=>{
+      const ma=matchById[String(a.match_id)]?.match_date||'';
+      const mb=matchById[String(b.match_id)]?.match_date||'';
+      if(ma!==mb)return String(ma).localeCompare(String(mb),'cs');
+      return String(userById[String(a.user_id)]||'').localeCompare(String(userById[String(b.user_id)]||''),'cs');
+    });
+
+  if(!rows.length){
+    return `<div class="public-tips-card">
+      <div class="public-tips-head">
+        <div>
+          <div class="public-tips-title">👀 Jak tipují ostatní?</div>
+          <div class="public-tips-sub">Zobrazují se jen čekající tipy na přesný výsledek.</div>
+        </div>
+      </div>
+      <div class="public-tips-empty">Zatím nejsou žádné čekající přesné tipy.</div>
+    </div>`;
+  }
+
+  const groups={};
+  rows.forEach(t=>{
+    const key=String(t.match_id);
+    if(!groups[key])groups[key]=[];
+    groups[key].push(t);
+  });
+
+  const matchSections=Object.keys(groups).map(mid=>{
+    const m=matchById[mid];
+    const tipRows=groups[mid].map(t=>`<tr>
+      <td>${escapeHTML(userById[String(t.user_id)]||'Hráč')}</td>
+      <td>${Number(t.score_home)} : ${Number(t.score_away)}</td>
+    </tr>`).join('');
+    return `<div class="public-tips-match">
+      <div class="public-tips-match-title">
+        <span>${escapeHTML(eventTitle(m))}</span>
+        <span class="public-tips-match-date">${escapeHTML(m.match_date||'')}</span>
+      </div>
+      <table class="public-tips-table"><tbody>${tipRows}</tbody></table>
+    </div>`;
+  }).join('');
+
+  return `<div class="public-tips-card">
+    <div class="public-tips-head">
+      <div>
+        <div class="public-tips-title">👀 Jak tipují ostatní?</div>
+        <div class="public-tips-sub">Jen čekající přesné tipy členů této soutěže.</div>
+      </div>
+    </div>
+    ${matchSections}
+  </div>`;
+}
+
+
 function renderSupportAdminBox(){
   const note=supportSettingsAvailable
     ? 'Nastavení se uloží veřejně do Supabase a projeví se všem hráčům.'
@@ -5395,6 +5610,7 @@ async function renderLeaderboard(){
   }).sort((a,b)=>pointsMode?(b.points-a.points||b.tipCount-a.tipCount):(b.credits-a.credits));
 
   const allTipsForComp=(tips||[]).filter(t=>compMatchIds.includes(t.match_id)&&participantIds.has(t.user_id));
+  const publicTipsEnabled=isPrivateCompetition(currentComp) ? await loadPublicTipsSetting() : false;
   const medals=['🥇','🥈','🥉'];
   const extraHtml=`<div class="lb-extra-grid">${renderHallOfFameBox(ranked,compMatches,pointsMode)}${renderPlayerStatsBox(ranked,allTipsForComp,matchById,pointsMode)}${renderSupportBox()}</div>`;
   let out=extraHtml+`<div class="sec-title">Celkové pořadí</div><div class="lb-wrap"><table>
@@ -5438,6 +5654,9 @@ async function renderLeaderboard(){
     }
   });
   out+='</tbody></table></div>';
+  if(publicTipsEnabled){
+    out+=renderPublicPendingTipsBox(allTipsForComp,leaderboardUsers,matchById);
+  }
   el.innerHTML=renderArchiveNotice()+out;
 }
 
@@ -5864,6 +6083,7 @@ async function renderAdmin(){
   }
 
   html+=renderSupportAdminBox();
+  html+=await renderPublicTipsAdminBox();
   html+=renderRewardAdminBox();
   html+=renderDefaultCompetitionAdminBox(comps);
   html+=renderRulesUpdatesAdminBox();
