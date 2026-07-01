@@ -2513,7 +2513,13 @@ img.reward-admin-img{
   };
 
   window.isChoicePointsEvent=function(match){
-    return String(match?.event_type||'').toLowerCase()==='choice_points';
+    const type=String(match?.event_type||'').toLowerCase();
+    if(type==='choice_points'||type==='choice'||type==='select_points'||type==='question_points')return true;
+    try{
+      const ro=typeof parseJsonMaybe==='function' ? parseJsonMaybe(match?.regulation_odds,{}) : (match?.regulation_odds||{});
+      if(Array.isArray(ro?.options)&&ro.options.length>=2)return true;
+    }catch(e){}
+    return false;
   };
 
   window.choiceOptionLabel=function(match,index){
@@ -3781,6 +3787,18 @@ async function loadRewardSetting(){
     if(data){
       currentRewardSetting=__normalizeRewardSettingSafe({...data,image_url:''});
 
+      // Když admin odměnu vypnul, musí vypnutí vyhrát nad starou lokální cache v prohlížeči hráče.
+      if(!currentRewardSetting.enabled){
+        currentRewardSetting.image_url='';
+        try{
+          localStorage.removeItem(rewardStorageKey());
+          localStorage.removeItem(imgCacheKey);
+          localStorage.setItem(metaCacheKey,JSON.stringify({...currentRewardSetting,image_url:''}));
+        }catch(e){}
+        renderRewardBox();
+        return currentRewardSetting;
+      }
+
       // 2) Obrázek vezmeme z lokální cache, pokud už ho prohlížeč jednou stáhl.
       let cached=null;
       try{cached=JSON.parse(localStorage.getItem(imgCacheKey)||'null');}catch(e){cached=null;}
@@ -3832,12 +3850,20 @@ async function loadRewardSetting(){
     rewardSettingsAvailable=true;
   }catch(e){
     rewardSettingsAvailable=false;
-    // Fallback: použijeme cache, aby se při chybě netahal znovu velký obrázek.
-    let local=null,img=null;
-    try{local=JSON.parse(localStorage.getItem(metaCacheKey)||localStorage.getItem(rewardStorageKey())||'null');}catch(_){}
-    try{img=JSON.parse(localStorage.getItem(imgCacheKey)||'null');}catch(_){}
-    currentRewardSetting=__normalizeRewardSettingSafe(local||{enabled:false,badge:currentPeriod?.name||currentComp?.name||'Odměna soutěže'});
-    if(img?.image_url)currentRewardSetting.image_url=img.image_url;
+    // Bezpečnější fallback: při chybě načtení odměnu raději schováme.
+    // Jinak se hráčům mohla zobrazit stará zapnutá odměna z localStorage.
+    currentRewardSetting=__normalizeRewardSettingSafe({
+      enabled:false,
+      title:'Hraje se o odměnu !!!',
+      badge:currentPeriod?.name||currentComp?.name||'Odměna soutěže',
+      description:'',
+      image_url:''
+    });
+    try{
+      localStorage.removeItem(rewardStorageKey());
+      localStorage.removeItem(imgCacheKey);
+      localStorage.setItem(metaCacheKey,JSON.stringify({...currentRewardSetting,image_url:''}));
+    }catch(_){}
     console.warn('reward setting:',e.message||e);
   }
 
@@ -3849,6 +3875,9 @@ async function saveRewardSetting(setting){
   if(!currentComp){alert('Nejdřív vyber soutěž.');return false;}
 
   currentRewardSetting=__normalizeRewardSettingSafe(setting);
+  if(!currentRewardSetting.enabled){
+    currentRewardSetting.image_url='';
+  }
   localStorage.setItem(rewardStorageKey(),JSON.stringify(currentRewardSetting));
 
   const payload={
@@ -3934,7 +3963,15 @@ function renderRewardBox(){
   const box=document.getElementById('rewardBox');
   if(!box)return;
   const s=__normalizeRewardSettingSafe(currentRewardSetting);
-  if(!s.enabled){box.style.display='none';return;}
+
+  // Odměna se nikdy nesmí zobrazit, pokud je vypnutá v adminu.
+  // U soukromé soutěže ji navíc neuvidí hráč, který ještě není schválený / připojený.
+  const isAdmin=currentUser?.username===ADMIN_USERNAME;
+  const privateBlocked=isPrivateCompetition(currentComp) && !isAdmin && !(currentMembership&&currentMembership.active!==false);
+  if(!currentComp || !s.enabled || privateBlocked){
+    box.style.display='none';
+    return;
+  }
 
   const img=(s.image_url||'').trim();
   box.querySelector('.reward-title').textContent='🎁 '+(s.title||'Hraje se o odměnu !!!');
@@ -4278,13 +4315,54 @@ function escapeHTML(str){
 }
 
 
+
+function formatChoiceTipLabel(match,tip){
+  if(!match||!tip)return '–';
+  return choiceOptionLabel(match,tip.outcome);
+}
+
+function formatMyTipDisplay(match,tip,pointsMode){
+  if(!match||!tip)return '';
+
+  const opts=(typeof getChoiceOptionsFromMatch==='function') ? getChoiceOptionsFromMatch(match) : [];
+  const rawOutcome=tip.outcome;
+  const hasOutcome=rawOutcome!==null && rawOutcome!==undefined && String(rawOutcome)!=='' && String(rawOutcome).toLowerCase()!=='null';
+
+  // Výběrové otázky ukládají odpověď do outcome jako index možnosti.
+  // Starší záznamy mohou mít score_home/score_away null, proto nikdy neskládáme null:null.
+  if(pointsMode && ((typeof isChoicePointsEvent==='function'&&isChoicePointsEvent(match)) || (opts.length>=2 && (tip.score_home==null || tip.score_away==null)))){
+    if(hasOutcome){
+      const label=choiceOptionLabel(match,rawOutcome);
+      if(label && label!=='–')return escapeHTML(label);
+      const idx=Number(rawOutcome);
+      if(Number.isInteger(idx)&&opts[idx])return escapeHTML(opts[idx]);
+      return escapeHTML(String(rawOutcome));
+    }
+    return '<span style="color:var(--red)">tip není uložený</span>';
+  }
+
+  if(pointsMode){
+    if(tip.score_home===null||tip.score_home===undefined||tip.score_away===null||tip.score_away===undefined){
+      return '<span style="color:var(--red)">tip není uložený</span>';
+    }
+    return `${escapeHTML(tip.score_home)}:${escapeHTML(tip.score_away)}`;
+  }
+
+  const inf=tip.outcome||tip.decision;
+  return escapeHTML(inf==='home'?match.home:inf==='away'?match.away:inf==='draw'?'Remíza':'–');
+}
+
 function formatAdminPendingTip(tip,match,pointsMode){
   if(!match)return '';
-  const teams=escapeHTML(`${match.home} – ${match.away}`);
+  const teams=escapeHTML(eventTitle(match));
   const date=escapeHTML(match.match_date||'');
   let tipText='';
   if(pointsMode){
-    tipText=`Přesný výsledek: <strong>${escapeHTML(tip.score_home)}:${escapeHTML(tip.score_away)}</strong>`;
+    if(typeof isChoicePointsEvent==='function' && isChoicePointsEvent(match)){
+      tipText=`Výběrová odpověď: <strong>${formatMyTipDisplay(match,tip,pointsMode)}</strong>`;
+    }else{
+      tipText=`Přesný výsledek: <strong>${escapeHTML(tip.score_home)}:${escapeHTML(tip.score_away)}</strong>`;
+    }
   }else{
     const picked=tip.outcome||tip.decision;
     const name=picked==='home'?match.home:picked==='away'?match.away:picked==='draw'?'Remíza':'–';
@@ -5054,7 +5132,8 @@ async function renderMatches(){
     }else if(!isDone&&matchStarted){
       if(myTip){
         if(pointsMode){
-          html+=`<div class="tip-result"><span>Tvůj tip: <strong>${myTip.score_home}:${myTip.score_away}</strong></span><span class="b-wait">⏳ Čeká na výsledek</span></div>`;
+          const myTipText=formatMyTipDisplay(m,myTip,pointsMode);
+          html+=`<div class="tip-result"><span>Tvůj tip: <strong>${myTipText}</strong></span><span class="b-wait">⏳ Čeká na výsledek</span></div>`;
         }else{
           const inf=myTip.outcome||myTip.decision;
           const outLbl=inf==='home'?m.home:inf==='away'?m.away:'Remíza';
@@ -5065,9 +5144,10 @@ async function renderMatches(){
     }else if(isDone&&myTip){
       const res=evaluateTip(m,myTip);
       if(pointsMode){
-        const exactHit=isExactScoreTip(myTip,m);
-        const badge=res===null?'<span class="b-wait">⏳ Čeká</span>':exactHit?`<span class="exact-celebration">🎉 Přesný výsledek! +5 bodů</span>`:res>0?`<span class="b-won">✓ +${Math.round(res)} bodů</span>`:'<span class="b-lost">0 bodů</span>';
-        html+=`<div class="tip-result"><span>Tvůj tip: <strong>${myTip.score_home}:${myTip.score_away}</strong></span>${badge}</div>`;
+        const choiceEvent=typeof isChoicePointsEvent==='function' && isChoicePointsEvent(m);
+        const exactHit=!choiceEvent && isExactScoreTip(myTip,m);
+        const badge=res===null?'<span class="b-wait">⏳ Čeká</span>':choiceEvent&&res>0?`<span class="b-won">✓ +2 body</span>`:exactHit?`<span class="exact-celebration">🎉 Přesný výsledek! +5 bodů</span>`:res>0?`<span class="b-won">✓ +${Math.round(res)} bodů</span>`:'<span class="b-lost">0 bodů</span>';
+        html+=`<div class="tip-result"><span>Tvůj tip: <strong>${formatMyTipDisplay(m,myTip,pointsMode)}</strong></span>${badge}</div>`;
       }else{
         const inf=myTip.outcome||myTip.decision;
         const outLbl=inf==='home'?m.home:inf==='away'?m.away:'Remíza';
@@ -5280,7 +5360,7 @@ async function renderMyTips(){
         tipLine=`<span style="font-size:12px;color:var(--text2)">Tip: <strong style="color:var(--text)">${escapeHTML(picked)}</strong></span><span style="font-size:11px;color:var(--text3)">výběrová otázka · +2 body</span>${correct?`<span style="font-size:12px;color:var(--text3)">Správně: <strong style="color:var(--text)">${escapeHTML(correct)}</strong></span>`:''}`;
         resultBadge=res===null?'<span class="b-wait">⏳ Čeká</span>':res>0?`<span class="b-won">+2 body</span>`:'<span class="b-lost">0 bodů</span>';
       }else{
-        tipLine=`<span style="font-size:12px;color:var(--text2)">Tip: <strong style="color:var(--text)">${t.score_home}:${t.score_away}</strong></span><span style="font-size:11px;color:var(--text3)">přesný výsledek</span>`;
+        tipLine=`<span style="font-size:12px;color:var(--text2)">Tip: <strong style="color:var(--text)">${formatMyTipDisplay(m,t,pointsMode)}</strong></span><span style="font-size:11px;color:var(--text3)">${(typeof isChoicePointsEvent==='function'&&isChoicePointsEvent(m))?'výběrová otázka':'přesný výsledek'}</span>`;
         const exactHit=isExactScoreTip(t,m);
         resultBadge=res===null?'<span class="b-wait">⏳ Čeká</span>':exactHit?'<span class="exact-celebration">🎉 Přesný výsledek! +5 bodů</span>':res>0?`<span class="b-won">+${Math.round(res)} bodů</span>`:'<span class="b-lost">0 bodů</span>';
       }
@@ -5430,8 +5510,13 @@ function renderPublicPendingTipsBox(allTipsForComp,leaderboardUsers,matchById){
       const m=matchById[String(t.match_id)];
       if(!m)return false;
       if(m.status==='done'||t.settled)return false;
-      if(t.score_home===null||t.score_home===undefined)return false;
-      if(t.score_away===null||t.score_away===undefined)return false;
+      const isChoice=typeof isChoicePointsEvent==='function' && isChoicePointsEvent(m);
+      if(isChoice){
+        if(t.outcome===null||t.outcome===undefined||String(t.outcome)==='')return false;
+      }else{
+        if(t.score_home===null||t.score_home===undefined)return false;
+        if(t.score_away===null||t.score_away===undefined)return false;
+      }
       return userById[String(t.user_id)];
     })
     .sort((a,b)=>{
@@ -5464,7 +5549,7 @@ function renderPublicPendingTipsBox(allTipsForComp,leaderboardUsers,matchById){
     const m=matchById[mid];
     const tipRows=groups[mid].map(t=>`<tr>
       <td>${escapeHTML(userById[String(t.user_id)]||'Hráč')}</td>
-      <td>${Number(t.score_home)} : ${Number(t.score_away)}</td>
+      <td>${(typeof isChoicePointsEvent==='function'&&isChoicePointsEvent(m))?escapeHTML(choiceOptionLabel(m,t.outcome)):(Number(t.score_home)+' : '+Number(t.score_away))}</td>
     </tr>`).join('');
     return `<div class="public-tips-match">
       <div class="public-tips-match-title">
