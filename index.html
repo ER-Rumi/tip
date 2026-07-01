@@ -3118,6 +3118,13 @@ async function canAccessCurrentCompetition(){
   return false;
 }
 
+function shouldHidePrivateCompetitionContent(){
+  if(!currentComp||!currentUser)return true;
+  if(!isPrivateCompetition(currentComp))return false;
+  if(currentUser.username===ADMIN_USERNAME)return false;
+  return !(currentMembership&&currentMembership.active!==false);
+}
+
 function getJoinCompetitionText(){
   if(isPointsCompetition()){
     return {
@@ -3198,6 +3205,7 @@ async function requestJoinCurrentCompetition(){
     }
     currentJoinRequest=data||payload;
     await refreshCurrentMembership();
+    renderRules();
     await renderMatches();
     if(document.getElementById('tab-leaderboard')?.style.display!=='none')await renderLeaderboard();
   }catch(e){
@@ -3407,6 +3415,14 @@ function splitRuleLine(line){
 }
 
 function renderRulesFromData(data){
+  const box=document.getElementById('rulesBox');
+  const reward=document.getElementById('rewardBox');
+  if(shouldHidePrivateCompetitionContent()){
+    if(box)box.style.display='none';
+    if(reward)reward.style.display='none';
+    return;
+  }
+  if(box)box.style.display='block';
   const grid=document.getElementById('rulesGrid');
   const note=document.getElementById('rulesNote');
   if(!grid||!note)return;
@@ -3966,8 +3982,7 @@ function renderRewardBox(){
 
   // Odměna se nikdy nesmí zobrazit, pokud je vypnutá v adminu.
   // U soukromé soutěže ji navíc neuvidí hráč, který ještě není schválený / připojený.
-  const isAdmin=currentUser?.username===ADMIN_USERNAME;
-  const privateBlocked=isPrivateCompetition(currentComp) && !isAdmin && !(currentMembership&&currentMembership.active!==false);
+  const privateBlocked=shouldHidePrivateCompetitionContent();
   if(!currentComp || !s.enabled || privateBlocked){
     box.style.display='none';
     return;
@@ -4117,6 +4132,18 @@ async function toggleRewardFromAdmin(){
 }
 
 function renderRules(){
+  const box=document.getElementById('rulesBox');
+  const reward=document.getElementById('rewardBox');
+
+  // Neschválený hráč v soukromé soutěži neuvidí pravidla ani odměnu,
+  // protože ještě není členem daného období.
+  if(shouldHidePrivateCompetitionContent()){
+    if(box)box.style.display='none';
+    if(reward)reward.style.display='none';
+    return;
+  }
+
+  if(box)box.style.display='block';
   if(currentRulesOverride){renderRulesFromData(currentRulesOverride);return;}
   const grid=document.getElementById('rulesGrid');
   const note=document.getElementById('rulesNote');
@@ -4992,7 +5019,17 @@ function refreshVisibleMatchLocks(){
 async function renderMatches(){
   const el=document.getElementById('matchList');
   if(!currentComp){el.innerHTML='<div class="empty">Žádná aktivní soutěž.</div>';return;}
-  if(!(await canAccessCurrentCompetition())){el.innerHTML=renderJoinCompetitionGate();return;}
+  if(!(await canAccessCurrentCompetition())){
+    const rules=document.getElementById('rulesBox');
+    const reward=document.getElementById('rewardBox');
+    if(rules)rules.style.display='none';
+    if(reward)reward.style.display='none';
+    el.innerHTML=renderJoinCompetitionGate();
+    return;
+  }
+  const rules=document.getElementById('rulesBox');
+  if(rules)rules.style.display='block';
+  renderRewardBox();
   let matchesQuery=sb.from('matches').select('*').eq('competition_id',currentComp.id).order('match_date');
   matchesQuery=applyPeriodFilter(matchesQuery);
   const{data:matches,error:matchesError}=await matchesQuery;
