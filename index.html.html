@@ -3787,6 +3787,18 @@ async function loadRewardSetting(){
     if(data){
       currentRewardSetting=__normalizeRewardSettingSafe({...data,image_url:''});
 
+      // Když admin odměnu vypnul, musí vypnutí vyhrát nad starou lokální cache v prohlížeči hráče.
+      if(!currentRewardSetting.enabled){
+        currentRewardSetting.image_url='';
+        try{
+          localStorage.removeItem(rewardStorageKey());
+          localStorage.removeItem(imgCacheKey);
+          localStorage.setItem(metaCacheKey,JSON.stringify({...currentRewardSetting,image_url:''}));
+        }catch(e){}
+        renderRewardBox();
+        return currentRewardSetting;
+      }
+
       // 2) Obrázek vezmeme z lokální cache, pokud už ho prohlížeč jednou stáhl.
       let cached=null;
       try{cached=JSON.parse(localStorage.getItem(imgCacheKey)||'null');}catch(e){cached=null;}
@@ -3838,12 +3850,20 @@ async function loadRewardSetting(){
     rewardSettingsAvailable=true;
   }catch(e){
     rewardSettingsAvailable=false;
-    // Fallback: použijeme cache, aby se při chybě netahal znovu velký obrázek.
-    let local=null,img=null;
-    try{local=JSON.parse(localStorage.getItem(metaCacheKey)||localStorage.getItem(rewardStorageKey())||'null');}catch(_){}
-    try{img=JSON.parse(localStorage.getItem(imgCacheKey)||'null');}catch(_){}
-    currentRewardSetting=__normalizeRewardSettingSafe(local||{enabled:false,badge:currentPeriod?.name||currentComp?.name||'Odměna soutěže'});
-    if(img?.image_url)currentRewardSetting.image_url=img.image_url;
+    // Bezpečnější fallback: při chybě načtení odměnu raději schováme.
+    // Jinak se hráčům mohla zobrazit stará zapnutá odměna z localStorage.
+    currentRewardSetting=__normalizeRewardSettingSafe({
+      enabled:false,
+      title:'Hraje se o odměnu !!!',
+      badge:currentPeriod?.name||currentComp?.name||'Odměna soutěže',
+      description:'',
+      image_url:''
+    });
+    try{
+      localStorage.removeItem(rewardStorageKey());
+      localStorage.removeItem(imgCacheKey);
+      localStorage.setItem(metaCacheKey,JSON.stringify({...currentRewardSetting,image_url:''}));
+    }catch(_){}
     console.warn('reward setting:',e.message||e);
   }
 
@@ -3855,6 +3875,9 @@ async function saveRewardSetting(setting){
   if(!currentComp){alert('Nejdřív vyber soutěž.');return false;}
 
   currentRewardSetting=__normalizeRewardSettingSafe(setting);
+  if(!currentRewardSetting.enabled){
+    currentRewardSetting.image_url='';
+  }
   localStorage.setItem(rewardStorageKey(),JSON.stringify(currentRewardSetting));
 
   const payload={
@@ -3940,7 +3963,15 @@ function renderRewardBox(){
   const box=document.getElementById('rewardBox');
   if(!box)return;
   const s=__normalizeRewardSettingSafe(currentRewardSetting);
-  if(!s.enabled){box.style.display='none';return;}
+
+  // Odměna se nikdy nesmí zobrazit, pokud je vypnutá v adminu.
+  // U soukromé soutěže ji navíc neuvidí hráč, který ještě není schválený / připojený.
+  const isAdmin=currentUser?.username===ADMIN_USERNAME;
+  const privateBlocked=isPrivateCompetition(currentComp) && !isAdmin && !(currentMembership&&currentMembership.active!==false);
+  if(!currentComp || !s.enabled || privateBlocked){
+    box.style.display='none';
+    return;
+  }
 
   const img=(s.image_url||'').trim();
   box.querySelector('.reward-title').textContent='🎁 '+(s.title||'Hraje se o odměnu !!!');
