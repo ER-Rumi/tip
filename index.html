@@ -4322,7 +4322,7 @@ async function loadTicker(){
     let items='';
     if(leader) items+=`<span class="t-item">🏆 <span class="lbl">Lídr žebříčku:</span> <strong>${escapeHTML(leader.username)}</strong> <span class="hi">${valueText(leader)}</span></span><span class="t-div">·</span>`;
     if(second) items+=`<span class="t-item">🥈 <strong>${escapeHTML(second.username)}</strong> ${valueText(second)}</span><span class="t-div">·</span>`;
-    if(lastMatch) items+=`<span class="t-item">🏒 <span class="lbl">Poslední zápas:</span> <strong>${escapeHTML(lastMatch.home)} – ${escapeHTML(lastMatch.away)}</strong> ${escapeHTML(lastMatch.result_home)}:${escapeHTML(lastMatch.result_away)}</span><span class="t-div">·</span>`;
+    if(lastMatch) items+=`<span class="t-item">🏒 <span class="lbl">Poslední:</span> <strong>${escapeHTML(tickerMatchLabel(lastMatch))}</strong> <span class="hi">${escapeHTML(tickerMatchResultText(lastMatch))}</span></span><span class="t-div">·</span>`;
     if(lastWin) items+=`<span class="t-item">💰 <span class="lbl">${tickerPointsMode?'Body kola':'Výhra kola'}:</span> <strong>${escapeHTML(lastWinUser?.username||'–')}</strong> <span class="pos">+${Number(lastWin.winnings||0).toLocaleString('cs-CZ')} ${tickerPointsMode?'bodů':'kr'}</span></span><span class="t-div">·</span>`;
     if(lastBigOdds&&lastBigOdds.odds>1.3) items+=`<span class="t-item">🎯 <span class="lbl">Kurz kola:</span> <strong>${escapeHTML(lastBigOddsUser?.username||'–')}</strong> <span class="hi">${lastBigOdds.odds.toFixed(2)}×</span></span><span class="t-div">·</span>`;
     if(lastLoss&&lastLoss.stake>100) items+=`<span class="t-item">📉 <span class="lbl">Prohra kola:</span> <strong>${escapeHTML(lastLossUser?.username||'–')}</strong> <span class="neg">−${Number(lastLoss.stake||0).toLocaleString('cs-CZ')} kr</span></span><span class="t-div">·</span>`;
@@ -4335,6 +4335,20 @@ async function loadTicker(){
     document.getElementById('tickerTrack').innerHTML=items+items;
     document.getElementById('tickerBar').style.display='block';
   }catch(e){console.warn('ticker:',e);}
+}
+
+
+function tickerMatchResultText(match){
+  if(!match)return '';
+  if(typeof isChoicePointsEvent==='function' && isChoicePointsEvent(match)){
+    return choiceOptionLabel(match,match.result_home);
+  }
+  return `${match.result_home}:${match.result_away}`;
+}
+
+function tickerMatchLabel(match){
+  if(!match)return '';
+  return eventTitle(match);
 }
 
 function escapeHTML(str){
@@ -5073,7 +5087,7 @@ async function renderMatches(){
     const binaryEvent=isBinaryEvent(m);
     const choicePointsEvent=typeof isChoicePointsEvent==='function'&&isChoicePointsEvent(m);
     const titleText=eventTitle(m);
-    html+=`<div class="match-card ${(binaryEvent||choicePointsEvent)?'event-card':''}" data-match-id="${m.id}" data-match-date="${escapeHTML(m.match_date)}" data-done="${isDone?'1':'0'}"><div class="match-head"><div><div class="match-teams">${escapeHTML(titleText)}</div><div class="match-date">${m.match_date}${binaryEvent?' · Všehochuť událost':choicePointsEvent?' · Výběrová otázka za 2 body':''}</div></div><span class="${sCls}"${statusAttr}>${sTxt}</span></div>`;
+    html+=`<div class="match-card ${(binaryEvent||choicePointsEvent)?'event-card':''}" data-match-id="${m.id}" data-match-date="${escapeHTML(m.match_date)}" data-done="${isDone?'1':'0'}"><div class="match-head"><div><div class="match-teams">${escapeHTML(titleText)}</div><div class="match-date">${m.match_date}${binaryEvent?' · Všehochuť událost':choicePointsEvent?' · otázka za 2 body':''}</div></div><span class="${sCls}"${statusAttr}>${sTxt}</span></div>`;
     if(isDone&&m.result_home!==null){
       if(choicePointsEvent){
         const eventWinner=choiceOptionLabel(m,m.result_home);
