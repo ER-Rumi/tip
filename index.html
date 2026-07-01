@@ -6113,7 +6113,12 @@ async function renderAdmin(){
     const jr=await jrQuery;
     if(!jr.error)joinRequests=jr.data||[];
   }catch(e){}
+  // Přehled zápasů v adminu necháváme zúžený na dnešek/budoucnost,
+  // ale výsledky musí jít zadat i pro starší rozjeté/uvízlé otázky.
   const visibleAdminMatches=matches.filter(isMatchTodayOrFuture);
+  const pendingResultAdminMatches=(matches||[])
+    .filter(m=>m.status!=='done')
+    .sort((a,b)=>(parseMatchDate(a.match_date)?.getTime()||0)-(parseMatchDate(b.match_date)?.getTime()||0));
   let html=renderCompetitionPeriodsAdminBox()+`<div class="admin-box"><h3>Nová soutěž</h3>
     <div class="field"><label>Název</label><input type="text" id="compName" placeholder="NHL Playoff 2026"></div>
     <div class="field"><label>Liga</label>
@@ -6299,9 +6304,9 @@ async function renderAdmin(){
       }
     }
 
-    const pend=(visibleAdminMatches||[]).filter(m=>m.status!=='done');
+    const pend=(pendingResultAdminMatches||[]).filter(m=>m.status!=='done');
     if(pend.length){
-      html+='<div class="admin-box"><h3>Zadat výsledky</h3>';
+      html+='<div class="admin-box"><h3>Zadat výsledky</h3><div style="color:var(--text3);font-size:12px;margin-bottom:10px">Tady se zobrazují všechny nevyhodnocené zápasy a otázky z vybraného období, včetně těch, které už začaly.</div>';
       pend.forEach(m=>{
         if(typeof isChoicePointsEvent==='function'&&isChoicePointsEvent(m)){
           const opts=getChoiceOptionsFromMatch(m);
