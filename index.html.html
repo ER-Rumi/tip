@@ -2513,7 +2513,13 @@ img.reward-admin-img{
   };
 
   window.isChoicePointsEvent=function(match){
-    return String(match?.event_type||'').toLowerCase()==='choice_points';
+    const type=String(match?.event_type||'').toLowerCase();
+    if(type==='choice_points'||type==='choice'||type==='select_points'||type==='question_points')return true;
+    try{
+      const ro=typeof parseJsonMaybe==='function' ? parseJsonMaybe(match?.regulation_odds,{}) : (match?.regulation_odds||{});
+      if(Array.isArray(ro?.options)&&ro.options.length>=2)return true;
+    }catch(e){}
+    return false;
   };
 
   window.choiceOptionLabel=function(match,index){
@@ -4286,9 +4292,27 @@ function formatChoiceTipLabel(match,tip){
 
 function formatMyTipDisplay(match,tip,pointsMode){
   if(!match||!tip)return '';
+
+  const opts=(typeof getChoiceOptionsFromMatch==='function') ? getChoiceOptionsFromMatch(match) : [];
+  const rawOutcome=tip.outcome;
+  const hasOutcome=rawOutcome!==null && rawOutcome!==undefined && String(rawOutcome)!=='' && String(rawOutcome).toLowerCase()!=='null';
+
+  // Výběrové otázky ukládají odpověď do outcome jako index možnosti.
+  // Starší záznamy mohou mít score_home/score_away null, proto nikdy neskládáme null:null.
+  if(pointsMode && ((typeof isChoicePointsEvent==='function'&&isChoicePointsEvent(match)) || (opts.length>=2 && (tip.score_home==null || tip.score_away==null)))){
+    if(hasOutcome){
+      const label=choiceOptionLabel(match,rawOutcome);
+      if(label && label!=='–')return escapeHTML(label);
+      const idx=Number(rawOutcome);
+      if(Number.isInteger(idx)&&opts[idx])return escapeHTML(opts[idx]);
+      return escapeHTML(String(rawOutcome));
+    }
+    return '<span style="color:var(--red)">tip není uložený</span>';
+  }
+
   if(pointsMode){
-    if(typeof isChoicePointsEvent==='function' && isChoicePointsEvent(match)){
-      return escapeHTML(formatChoiceTipLabel(match,tip));
+    if(tip.score_home===null||tip.score_home===undefined||tip.score_away===null||tip.score_away===undefined){
+      return '<span style="color:var(--red)">tip není uložený</span>';
     }
     return `${escapeHTML(tip.score_home)}:${escapeHTML(tip.score_away)}`;
   }
@@ -5305,7 +5329,7 @@ async function renderMyTips(){
         tipLine=`<span style="font-size:12px;color:var(--text2)">Tip: <strong style="color:var(--text)">${escapeHTML(picked)}</strong></span><span style="font-size:11px;color:var(--text3)">výběrová otázka · +2 body</span>${correct?`<span style="font-size:12px;color:var(--text3)">Správně: <strong style="color:var(--text)">${escapeHTML(correct)}</strong></span>`:''}`;
         resultBadge=res===null?'<span class="b-wait">⏳ Čeká</span>':res>0?`<span class="b-won">+2 body</span>`:'<span class="b-lost">0 bodů</span>';
       }else{
-        tipLine=`<span style="font-size:12px;color:var(--text2)">Tip: <strong style="color:var(--text)">${t.score_home}:${t.score_away}</strong></span><span style="font-size:11px;color:var(--text3)">přesný výsledek</span>`;
+        tipLine=`<span style="font-size:12px;color:var(--text2)">Tip: <strong style="color:var(--text)">${formatMyTipDisplay(m,t,pointsMode)}</strong></span><span style="font-size:11px;color:var(--text3)">${(typeof isChoicePointsEvent==='function'&&isChoicePointsEvent(m))?'výběrová otázka':'přesný výsledek'}</span>`;
         const exactHit=isExactScoreTip(t,m);
         resultBadge=res===null?'<span class="b-wait">⏳ Čeká</span>':exactHit?'<span class="exact-celebration">🎉 Přesný výsledek! +5 bodů</span>':res>0?`<span class="b-won">+${Math.round(res)} bodů</span>`:'<span class="b-lost">0 bodů</span>';
       }
